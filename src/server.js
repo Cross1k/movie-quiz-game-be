@@ -19,6 +19,8 @@ cloudinary.config({
   api_secret: getEnvVar(CLOUDINARY.CLOUDAPISECRET),
 });
 
+let hostPageId = null;
+
 export const setupServer = () => {
   const app = express();
   const server = http.createServer(app);
@@ -46,8 +48,7 @@ export const setupServer = () => {
 
   io.on("connection", (socket) => {
     console.log("Новое подключение:", socket.id, socket.handshake.time);
-    socket.emit("home_page", socket.id);
-
+    // socket.emit("home_page", socket.id);
     socket.on("create_session", (room) => {
       socket.join(room);
 
@@ -58,39 +59,93 @@ export const setupServer = () => {
       socket.join(room);
 
       const roomSize = io.sockets.adapter.rooms.get(room).size;
-      console.log(roomSize);
+      console.log("users connected:", roomSize);
       if (roomSize === 5) {
         socket.to(room).emit("broadcast_full_room", room);
       }
       console.log("Игрок подключился к сессии:", room);
     });
 
-    socket.on("get_themes", async () => {
-      try {
-        const result = await cloudinary.api.sub_folders("movie-quiz/themes");
-        socket.emit("themes_list", result.folders);
-      } catch (error) {
-        console.log(error);
+    socket.on("host_page_id", (id) => {
+      hostPageId = id;
+      console.log("host page id:", hostPageId);
+    });
+
+    socket.on("game_page", (gameId) => {
+      if (hostPageId) {
+        // Используем io.to вместо socket.to для отправки конкретному сокету
+        io.to(hostPageId).emit("send_game_page_id", gameId);
+        console.log(hostPageId, "ID игровой страницы отправлен хосту:", gameId);
+      } else {
+        console.log("Ошибка: ID хост-страницы не установлен");
       }
     });
 
-    socket.on("select_theme", async (path, sessionid) => {
+    socket.on("get_themes", async () => {
       try {
-        const result = await cloudinary.api.sub_folders(`${path}`);
-        socket.to(sessionid).emit("open_theme", result.folders);
+        console.log("📡 Запрос тем и фильмов...");
+        const themesResult = await cloudinary.api.sub_folders(
+          "movie-quiz/themes"
+        );
+
+        let themesWithMovies = [];
+
+        for (const theme of themesResult.folders) {
+          const moviesResult = await cloudinary.api.sub_folders(
+            `movie-quiz/themes/${theme.name}`
+          );
+          themesWithMovies.push({
+            theme: theme.name,
+            movies: moviesResult.folders.map((movie, index) => {
+              return {
+                index,
+                movie: movie.name,
+              };
+            }),
+          });
+        }
+
+        console.log("✅ Отправляем темы и фильмы:", themesWithMovies);
+        socket.emit("themes_list", themesWithMovies);
       } catch (error) {
-        console.log(error);
+        console.error("❌ Ошибка при запросе тем и фильмов:", error);
+        socket.emit("themes_list", []);
       }
+    });
+
+    socket.on("select_movie", async (themeName, movieName, gameId) => {
+      console.log("selected movie:", themeName, movieName, gameId);
+      try {
+        const result = await cloudinary.api.resources_by_asset_folder(
+          `movie-quiz/themes/${themeName}/${movieName}`
+        );
+        console.log(
+          "selected movie:",
+          result.resources.map((frame) => frame.url)
+        );
+        io.to(gameId).emit(
+          "open_frame",
+          result.resources.map((frame) => frame.url)
+        );
+      } catch (error) {
+        console.log("error", error.message);
+      }
+    });
+
+    socket.on("change_frame", (gameId) => {
+      io.to(gameId).emit("change_frame");
+      console.log("FRAME, sended to", gameId);
+    });
+
+    socket.on("show_logo", (gameId) => {
+      socket.to(gameId).emit("show_logo");
+      console.log("LOGO, sended to", gameId);
     });
 
     socket.on("give_answer", ({ session, id }) => {
       socket.to(session).emit("broadcast_answer", id);
 
       console.log(id, session);
-    });
-
-    socket.on("good_answer", (session) => {
-      socket.to(session).emit("broadcast_good_answer");
     });
 
     socket.on("bad_answer", (session) => {
