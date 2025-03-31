@@ -22,7 +22,7 @@ cloudinary.config({
 
 let hostPageIds = [];
 
-let score = {};
+let score = [];
 
 let playerList = [];
 
@@ -71,6 +71,11 @@ export const setupServer = () => {
       console.log("Игрок подключился к сессии:", room);
     });
 
+    socket.on("join_room_game_page", (room, gamePageId) => {
+      socket.join(room);
+      socket.broadcast.to(room).emit("game_page_id", gamePageId);
+    });
+
     socket.on("host_page_id", (id, _id) => {
       // Ищем запись по уникальному _id
       let existingHost = hostPageIds.find((host) => host._id === _id);
@@ -98,7 +103,7 @@ export const setupServer = () => {
       let existingPlayer = playerList.find((player) => player._id === _id);
 
       if (!existingPlayer) {
-        // Если хоста с таким _id нет, создаем новую запись
+        // Если игрока с таким _id нет, создаем новую запись
         const newPlayer = { _id: nanoid(), socketId: id };
         playerList.push(newPlayer);
         io.emit("host_page_id_answer", newPlayer._id);
@@ -115,14 +120,15 @@ export const setupServer = () => {
       console.log("Текущий список игроков:", existingPlayer);
     });
 
-    socket.on("game_page", (gameId) => {
-      if (hostPageId) {
-        // Используем io.to вместо socket.to для отправки конкретному сокету
-        io.to(hostPageId).emit("send_game_page_id", gameId);
-        console.log(hostPageId, "ID игровой страницы отправлен хосту:", gameId);
-      } else {
-        console.log("Ошибка: ID хост-страницы не установлен");
-      }
+    socket.on("game_page", (room, gamePageId) => {
+      socket.broadcast.to(room).emit("game_page_id", gamePageId);
+      // if (hostPageId) {
+      //   // Используем io.to вместо socket.to для отправки конкретному сокету
+      //   io.to(hostPageId).emit("send_game_page_id", gameId);
+      //   console.log(hostPageId, "ID игровой страницы отправлен хосту:", gameId);
+      // } else {
+      //   console.log("Ошибка: ID хост-страницы не установлен");
+      // }
     });
 
     socket.on("get_themes", async () => {
@@ -197,26 +203,29 @@ export const setupServer = () => {
     });
 
     socket.on("send_points", (pts, gameId, playerName, playerId) => {
-      const playerExist = () => {
-        if (!score[playerId]) {
-          score[playerId] = { name: playerName, score: pts };
-        } else {
-          score[playerId].score += pts;
-        }
-      };
-      playerExist();
-      io.to(gameId).emit(
-        "all_points",
-        score,
-        console.log("Transferred data:", score)
-      );
+      console.log("Имя команды:", playerName);
+      // Ищем игрока в массиве по playerId
+      const playerIndex = score.findIndex((player) => player?.id === playerId);
+
+      if (playerIndex === -1) {
+        // Игрок не существует, добавляем его в массив
+        score.push({ id: playerId, name: playerName, score: pts });
+      } else {
+        // Игрок существует, обновляем его счет
+        score[playerIndex].score += pts;
+      }
+
+      // Отправляем всем игрокам в комнате обновленный массив очков
+      io.to(gameId).emit("all_points", score);
+
+      // Отправляем только игроку с данным playerId его личные очки
       io.to(playerId).emit(
         "your_points",
-        score[playerId].score,
-        console.log(
-          `Transferred ${score[playerId].score} points to ${playerId}`
-        )
+        score[playerIndex === -1 ? score.length - 1 : playerIndex]
       );
+
+      console.log("Transferred data:", score);
+      console.log(`Transferred ${pts} points to ${playerId}`);
     });
 
     socket.on("disconnect", () => {
