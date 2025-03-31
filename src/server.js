@@ -3,6 +3,7 @@ import pino from "pino-http";
 import cors from "cors";
 import http from "http";
 
+import { nanoid } from "nanoid";
 import { v2 as cloudinary } from "cloudinary";
 
 import { Server } from "socket.io";
@@ -19,7 +20,11 @@ cloudinary.config({
   api_secret: getEnvVar(CLOUDINARY.CLOUDAPISECRET),
 });
 
-let hostPageId = null;
+let hostPageIds = [];
+
+let score = {};
+
+let playerList = [];
 
 export const setupServer = () => {
   const app = express();
@@ -66,9 +71,48 @@ export const setupServer = () => {
       console.log("Игрок подключился к сессии:", room);
     });
 
-    socket.on("host_page_id", (id) => {
-      hostPageId = id;
-      console.log("host page id:", hostPageId);
+    socket.on("host_page_id", (id, _id) => {
+      // Ищем запись по уникальному _id
+      let existingHost = hostPageIds.find((host) => host._id === _id);
+
+      if (!existingHost) {
+        // Если хоста с таким _id нет, создаем новую запись
+        const newHost = { _id: nanoid(), socketId: id };
+        hostPageIds.push(newHost);
+        io.emit("host_page_id_answer", newHost._id);
+        console.log("Добавлен новый хост:", newHost);
+      } else if (existingHost.socketId !== id) {
+        // Если уже есть, просто обновляем socketId
+        existingHost.socketId = id;
+        io.emit("host_page_id_answer", existingHost._id);
+        console.log("Обновлен существующий хост:", existingHost);
+      } else {
+        console.log("Хост существует");
+      }
+
+      console.log("Текущий список хостов:", hostPageIds);
+    });
+
+    socket.on("player_page_id", (id, _id) => {
+      // Ищем запись по уникальному _id
+      let existingPlayer = playerList.find((player) => player._id === _id);
+
+      if (!existingPlayer) {
+        // Если хоста с таким _id нет, создаем новую запись
+        const newPlayer = { _id: nanoid(), socketId: id };
+        playerList.push(newPlayer);
+        io.emit("host_page_id_answer", newPlayer._id);
+        console.log("Добавлен новый хост:", newPlayer);
+      } else if (existingPlayer.socketId !== id) {
+        // Если уже есть, просто обновляем socketId
+        existingPlayer.socketId = id;
+        io.emit("host_page_id_answer", existingPlayer._id);
+        console.log("Обновлен существующий хост:", existingPlayer);
+      } else {
+        console.log("Игрок существует");
+      }
+
+      console.log("Текущий список игроков:", existingPlayer);
     });
 
     socket.on("game_page", (gameId) => {
@@ -142,14 +186,37 @@ export const setupServer = () => {
       console.log("LOGO, sended to", gameId);
     });
 
-    socket.on("give_answer", ({ session, id }) => {
-      socket.to(session).emit("broadcast_answer", id);
+    socket.on("give_answer", (session, id) => {
+      socket.broadcast.to(session).emit("broadcast_answer", id);
 
       console.log(id, session);
     });
 
     socket.on("bad_answer", (session) => {
       socket.to(session).emit("broadcast_bad_answer");
+    });
+
+    socket.on("send_points", (pts, gameId, playerName, playerId) => {
+      const playerExist = () => {
+        if (!score[playerId]) {
+          score[playerId] = { name: playerName, score: pts };
+        } else {
+          score[playerId].score += pts;
+        }
+      };
+      playerExist();
+      io.to(gameId).emit(
+        "all_points",
+        score,
+        console.log("Transferred data:", score)
+      );
+      io.to(playerId).emit(
+        "your_points",
+        score[playerId].score,
+        console.log(
+          `Transferred ${score[playerId].score} points to ${playerId}`
+        )
+      );
     });
 
     socket.on("disconnect", () => {
