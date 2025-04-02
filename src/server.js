@@ -66,8 +66,8 @@ export const setupServer = () => {
   const server = http.createServer(app);
 
   const io = new Server(server, {
-    // cors: { origin: "https://movie-quiz-psi.vercel.app" }, // use it on prod
-    cors: { origin: "*" },
+     cors: { origin: "https://movie-quiz-psi.vercel.app" }, // use it on prod
+   // cors: { origin: "*" },
   });
 
   app.use(cors());
