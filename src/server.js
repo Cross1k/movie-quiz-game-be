@@ -64,13 +64,14 @@ function determineWinner(room) {
 export const setupServer = () => {
   const app = express();
   const server = http.createServer(app);
-
+  app.use(cors());
+  
   const io = new Server(server, {
      cors: { origin: "https://movie-quiz-psi.vercel.app" }, // use it on prod
    // cors: { origin: "*" },
   });
 
-  app.use(cors());
+
 
   app.use(
     pino({
