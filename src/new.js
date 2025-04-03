@@ -77,6 +77,7 @@ export const setupServer = () => {
 
     socket.on("create_session", async (room) => {
       await getThemesAndMovies(room);
+
       games[room] = {
         host: { socketId: null },
         players: [
@@ -187,21 +188,16 @@ export const setupServer = () => {
 
     socket.on("answer_yes", (room, playerName) => {
       console.log("Answer yes");
+      console.log(
+        movies[room].themes[selectedTheme[room]].movies[selectedMovie[room]]
+      );
 
-      // movies[room].themes.forEach((theme) => {
-      //   theme.movies.forEach((movie) => {
-      //     if (movie.name === selectedMovie[room]) {
-      //       movie.guessed = true;
-      //     }
-      //   });
-      // });
-
-      socket.broadcast.to(room).emit("answer_yes", playerName, movies[room]); // send event to all in this game
+      socket.broadcast.to(room).emit("answer_yes", playerName); // send event to all in this game
       socket.broadcast.to(room).emit("get_points", playerName);
     });
 
-    socket.on("player_points", (room, playerName, pts, gameId, movie) => {
-      console.log(room, playerName, pts, movie);
+    socket.on("player_points", (room, playerName, pts, gameId) => {
+      console.log(room, playerName, pts, gameId);
       const player = games[room].players.find(
         (player) => player.name === playerName
       );
@@ -230,8 +226,10 @@ export const setupServer = () => {
       const list = {};
       for (const theme of themeList) {
         // Перебираємо теми
-        list[theme] = [...moviesTheme[theme].movies]; // Копіюємо список фільмів у відповідну тему
+        list[theme] = { movies: [...moviesTheme[theme].movies] }; // Копіюємо список фільмів у відповідну тему
       }
+
+      console.log("list", list);
       io.to(room).emit("all_themes", list);
     });
 
@@ -257,33 +255,25 @@ export const setupServer = () => {
     //frames and end game
 
     socket.on("end_game", (room) => {
-      // const result = determineWinner(room);
+      // players = games[room].forEach((player) => player.points);
+      const maxPoints = Math.max(
+        ...games[room].players.map((player) => player.points)
+      );
 
-      // if (result) {
-      //   if (result.isTie) {
-      //     // Обработка ничьей
-      //     io.to(room).emit("game_ended_tie", {
-      //       tiedPlayers: result.tiedPlayers.map((p) => ({
-      //         name: p.name,
-      //         score: p.score,
-      //       })),
-      //       score: result.winner.score,
-      //     });
-      //     console.log(`Игра ${room} завершена с ничьей`);
-      //   } else {
-      //     // Обработка победы
-      //     io.to(room).emit("game_ended", {
-      //       winner: result.winner.name,
-      //       score: result.winner.score,
-      //     });
-      //     console.log(
-      //       `Игра ${room} завершена, победитель ${result.winner.name} со счетом ${result.winner.score}`
-      //     );
-      //   }
+      // Находим всех игроков с максимальным количеством очков
+      let winners = games[room].players.filter(
+        (player) => player.points === maxPoints
+      );
 
+      // Если больше одного игрока с максимальным количеством очков, это ничья
+      if (winners.length > 1) {
+        winners = "Ничья";
+      }
+
+      socket.to(room).emit("end_game", winners, maxPoints);
       // Очистка данных игры
-      delete gamesList[room];
-      delete moviesList[room];
+      delete games[room];
+      delete movies[room];
       //   } else {
       //     console.log(`Невозможно определить победителя в игре ${room}`);
       //   }
