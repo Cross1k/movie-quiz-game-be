@@ -183,7 +183,7 @@ export const setupServer = () => {
 
     socket.on("player_answer", (room, playerName) => {
       console.log(`Player ${playerName} answering...`);
-      socket.broadcast.to(room).emit("player_answer", playerName); // send event to all in this game
+      io.emit("player_answer", playerName); // send event to all in this game
     });
 
     socket.on("answer_yes", (room, playerName) => {
@@ -192,7 +192,7 @@ export const setupServer = () => {
         movies[room].themes[selectedTheme[room]].movies[selectedMovie[room]]
       );
 
-      socket.broadcast.to(room).emit("answer_yes", playerName); // send event to all in this game
+      io.emit("answer_yes", playerName); // send event to all in this game
       socket.broadcast.to(room).emit("get_points", playerName);
     });
 
@@ -212,14 +212,14 @@ export const setupServer = () => {
 
     socket.on("answer_no", (room) => {
       console.log("Answer no");
-      socket.broadcast.to(room).emit("answer_no"); // send event to all in this game
+      io.emit("answer_no"); // send event to all in this game
     });
 
     socket.on("get_themes", (room) => {
       if (!games[room]) {
         return;
       }
-      console.log("Themes", room, movies[room].themes);
+      // console.log("Themes", room, movies[room].themes);
       const themeList = Object.keys(movies[room].themes); // Отримуємо список тем
       const moviesTheme = movies[room].themes; // Отримуємо об'єкт тем
 
@@ -261,19 +261,29 @@ export const setupServer = () => {
       );
 
       // Находим всех игроков с максимальным количеством очков
-      let winners = games[room].players.filter(
+      const winners = games[room].players.filter(
         (player) => player.points === maxPoints
       );
 
+      let result;
+
       // Если больше одного игрока с максимальным количеством очков, это ничья
       if (winners.length > 1) {
-        winners = "Ничья";
+        result = "Ничья";
+        console.log("winners: Ничья", "max points", maxPoints);
+        io.emit("end_game", result, maxPoints);
+      } else {
+        // Если один победитель, отправляем его имя
+        result = winners[0].name;
+        console.log("winner:", result, "max points", maxPoints);
+        io.emit("end_game", result, maxPoints);
       }
-
-      socket.to(room).emit("end_game", winners, maxPoints);
       // Очистка данных игры
-      delete games[room];
-      delete movies[room];
+      setTimeout(() => {
+        console.log("game deleted", room);
+        delete games[room];
+        delete movies[room];
+      }, 6000);
       //   } else {
       //     console.log(`Невозможно определить победителя в игре ${room}`);
       //   }
