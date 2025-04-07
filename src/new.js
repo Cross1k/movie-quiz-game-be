@@ -19,65 +19,61 @@ cloudinary.config({
 });
 
 const games = {};
-
 const movies = {};
-
 const selectedTheme = {};
-
 const selectedMovie = {};
 
-// const getThemesAndMovies = async () => {
-//   const themesResult = await cloudinary.api.sub_folders("movie-quiz/themes");
-//   const themes = themesResult.folders.name;
-//   movies = { ...themes };
-//   console.log(movies);
-// for (const theme of themes) {
-//   const moviesResult = await cloudinary.api.sub_folders(
-//     `movie-quiz/themes/${theme.name}`
-//   );
-// }
-// };
 const getThemesAndMovies = async (room) => {
+  if (!room) {
+    console.error("getThemesAndMovies: room is null or undefined");
+    return;
+  }
+
   try {
-    console.log("📡 Запрос тем и фильмов...");
+    console.log("Themes and movies requested");
 
     const themesResult = await cloudinary.api.sub_folders("movie-quiz/themes");
     movies[room] = { themes: {} };
-    for (const theme of themesResult.folders) {
-      if (!movies[room].themes[theme.name]) {
-        movies[room].themes[theme.name] = { movies: [] };
-
-        const moviesResult = await cloudinary.api.sub_folders(
-          `movie-quiz/themes/${theme.name}`
-        );
-
-        movies[room].themes[theme.name].movies = moviesResult.folders.map(
-          (movie, index) => ({
-            index,
-            name: movie.name,
-            guessed: false,
-            whoGuessed: null,
-          })
-        );
-      }
+    if (!themesResult || !themesResult.folders) {
+      console.error("getThemesAndMovies: themesResult is null or undefined");
+      return;
     }
-    console.log("📡 Темы и фильмы получены:", movies[room].themes);
+
+    for (const theme of themesResult.folders) {
+      if (!theme || !theme.name) {
+        console.error("getThemesAndMovies: theme is null or undefined");
+        continue;
+      }
+
+      movies[room].themes[theme.name] = {
+        movies: (
+          await cloudinary.api.sub_folders(`movie-quiz/themes/${theme.name}`)
+        ).folders.map((movie, index) => ({
+          index,
+          name: movie.name,
+          guessed: false,
+          whoGuessed: null,
+        })),
+      };
+    }
+    console.log("Themes and movies received:", movies[room].themes);
   } catch (error) {
-    console.error("❌ Ошибка при запросе тем и фильмов:", error);
+    console.error("Error when requesting themes and movies:", error);
   }
 };
 
 export const setupServer = () => {
   const app = express();
   const server = http.createServer(app);
-  const io = new Server(server, { cors: { origin: "*" } });
+  const io = new Server(server, {
+    cors: { origin: "https://movie-quiz-psi.vercel.app/" },
+  });
 
-  io.on("connection", async (socket) => {
-    console.log("Новое подключение:", socket.id);
+  io.on("connection", (socket) => {
+    console.log("New connection:", socket.id);
 
     socket.on("create_session", async (room) => {
       await getThemesAndMovies(room);
-
       games[room] = {
         host: { socketId: null },
         players: [
@@ -86,113 +82,99 @@ export const setupServer = () => {
           { socketId: null, points: 0, name: "Черемушки" },
         ],
         game: { socketId: null },
+        isRoundStarted: false,
+        whoAnswering: null,
       };
-      // socket.leave(room);
-      console.log("Сессия создана:", room);
+      console.log("Session created:", room);
     });
 
     socket.on("player_join_room", (room, playerName, playerSocket) => {
-      if (!games[room]) {
-        return;
-      }
-
-      // if (!playerId) {
-      //   playerId = nanoid();
-      // }
+      if (!games[room]) return;
       const player = games[room].players.find(
         (player) => player.name === playerName
       );
-
       if (player.socketId !== playerSocket) {
         player.socketId = playerSocket;
-        // player._id = playerId;
         console.log("Player joined", player);
         socket.join(room);
-        // socket.emit("player_joined_room", playerId);
-      } else {
-        return;
+        socket.emit("player_joined");
       }
     });
 
     socket.on("host_join_room", (room, hostSocket) => {
-      // if (hostId === null) {
-      //   hostId = nanoid();
-      // }
-
-      if (!games[room]) {
-        console.log("?");
-        return;
-      }
-
+      if (!games[room]) return;
       let host = games[room].host;
-
-      if (host.hostSocket === null) {
+      if (host.socketId === null) {
         host = { socketId: hostSocket };
         console.log("Host joined", host);
         socket.join(room);
-        // socket.emit("host_joined_room", hostId);
       } else if (host.socketId !== hostSocket) {
         host.socketId = hostSocket;
         console.log("Host changed and joined", host);
         socket.join(room);
-        // socket.emit("host_joined_room", hostId);
-      } else if (host.socketId === hostSocket) {
-        console.log("host exist", room, host);
       }
     });
 
     socket.on("game_join_room", (room, gameSocket) => {
-      if (!games[room]) {
-        return;
-      }
-
+      if (!games[room]) return;
       let game = games[room].game;
-      // console.log("First game page", room, game);
       if (game.socketId === null) {
         game = { socketId: gameSocket };
         console.log("Game page joined", game);
         socket.join(room);
-        // socket.emit("game_joined_room", gameId);
       } else if (game.socketId !== gameSocket) {
         game.socketId = gameSocket;
         console.log("Game page changed and joined", game);
         socket.join(room);
-        // socket.emit("game_joined_room", gameId);
-      } else {
-        console.log("game exist", room);
       }
     });
 
     socket.on("start_game", (room) => {
-      if (!games[room]) {
-        return;
-      }
+      if (!games[room]) return;
       console.log("Game started", room);
-      socket.broadcast.to(room).emit("start_game", room); // send event to homepage to navigate to game
+      socket.broadcast.to(room).emit("start_game", room);
+    });
+
+    socket.on("round_request", (room) => {
+      if (!games[room]) return;
+      socket.emit("is_started", games[room].isRoundStarted);
+    });
+
+    socket.on("who_answer", (room) => {
+      if (!games[room]) return;
+      socket.emit("who_answer", games[room].whoAnswering);
     });
 
     socket.on("start_round", (room) => {
       console.log("Round started");
       socket.broadcast.to(room).emit("start_round");
+      games[room].isRoundStarted = true;
     });
 
     socket.on("round_end", (room) => {
       console.log("Round ended");
       socket.broadcast.to(room).emit("round_end");
+      games[room].isRoundStarted = false;
     });
 
     socket.on("player_answer", (room, playerName) => {
       console.log(`Player ${playerName} answering...`);
-      io.emit("player_answer", playerName); // send event to all in this game
+
+      games[room].whoAnswering = playerName;
+
+      io.emit("player_answer", playerName);
     });
 
     socket.on("answer_yes", (room, playerName) => {
       console.log("Answer yes");
-      console.log(
-        movies[room].themes[selectedTheme[room]].movies[selectedMovie[room]]
-      );
-
-      io.emit("answer_yes", playerName); // send event to all in this game
+      const chosenMovie = Object.values(
+        movies[room].themes[selectedTheme[room]].movies
+      ).find((m) => m.name === selectedMovie[room]);
+      chosenMovie.guessed = true;
+      chosenMovie.whoGuessed = playerName;
+      games[room].whoAnswering = null;
+      games[room].isRoundStarted = false;
+      io.emit("answer_yes", playerName);
       socket.broadcast.to(room).emit("get_points", playerName);
     });
 
@@ -201,35 +183,27 @@ export const setupServer = () => {
       const player = games[room].players.find(
         (player) => player.name === playerName
       );
-      console.log(player);
       player.points += pts;
 
       io.to(gameId).emit("all_points", games[room].players);
-      console.log("Sending points", games[room].players, "to", gameId);
-
       io.to(player.socketId).emit("your_points", player.points);
     });
 
     socket.on("answer_no", (room) => {
       console.log("Answer no");
-      io.emit("answer_no"); // send event to all in this game
+      io.emit("answer_no");
     });
 
     socket.on("get_themes", (room) => {
-      if (!games[room]) {
-        return;
-      }
-      // console.log("Themes", room, movies[room].themes);
-      const themeList = Object.keys(movies[room].themes); // Отримуємо список тем
-      const moviesTheme = movies[room].themes; // Отримуємо об'єкт тем
+      if (!games[room]) return;
+      const themeList = Object.keys(movies[room].themes);
+      const moviesTheme = movies[room].themes;
 
       const list = {};
       for (const theme of themeList) {
-        // Перебираємо теми
-        list[theme] = { movies: [...moviesTheme[theme].movies] }; // Копіюємо список фільмів у відповідну тему
+        list[theme] = { movies: [...moviesTheme[theme].movies] };
       }
 
-      console.log("list", list);
       io.to(room).emit("all_themes", list);
     });
 
@@ -241,10 +215,7 @@ export const setupServer = () => {
       selectedTheme[room] = theme;
       selectedMovie[room] = movie;
 
-      const framesList = () => {
-        return frames.resources.map((frame) => frame.url);
-      };
-      console.log("Sending frames", framesList(), "from", movie, "to", room);
+      const framesList = () => frames.resources.map((frame) => frame.url);
       io.to(room).emit("all_frames", framesList(), movie);
     });
 
@@ -252,41 +223,32 @@ export const setupServer = () => {
       console.log("Change frame");
       socket.to(gamePage).emit("change_frame");
     });
-    //frames and end game
 
-    socket.on("end_game", (room) => {
-      // players = games[room].forEach((player) => player.points);
+    socket.on("end_game", async (room) => {
       const maxPoints = Math.max(
         ...games[room].players.map((player) => player.points)
       );
 
-      // Находим всех игроков с максимальным количеством очков
       const winners = games[room].players.filter(
         (player) => player.points === maxPoints
       );
 
       let result;
-
-      // Если больше одного игрока с максимальным количеством очков, это ничья
       if (winners.length > 1) {
         result = "Ничья";
         console.log("winners: Ничья", "max points", maxPoints);
         io.emit("end_game", result, maxPoints);
       } else {
-        // Если один победитель, отправляем его имя
         result = winners[0].name;
         console.log("winner:", result, "max points", maxPoints);
         io.emit("end_game", result, maxPoints);
       }
-      // Очистка данных игры
+
       setTimeout(() => {
         console.log("game deleted", room);
         delete games[room];
         delete movies[room];
       }, 6000);
-      //   } else {
-      //     console.log(`Невозможно определить победителя в игре ${room}`);
-      //   }
     });
 
     io.on("disconnect", () => {
@@ -302,10 +264,10 @@ export const setupServer = () => {
   app.use((req, res) => res.status(404).json({ message: "Not found" }));
 
   app.use((err, req, res, next) => {
-    console.error("Ошибка:", err.message);
+    console.error("Error:", err.message);
     res
       .status(500)
-      .json({ message: "Что-то пошло не так", error: err.message });
+      .json({ message: "Something went wrong", error: err.message });
   });
 
   server.listen(PORT, () => console.log(`Server is running on port ${PORT}`));
