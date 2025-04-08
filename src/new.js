@@ -67,6 +67,7 @@ export const setupServer = () => {
   const server = http.createServer(app);
   const io = new Server(server, {
     cors: { origin: "https://movie-quiz-psi.vercel.app" },
+    // cors: { origin: "*" },
   });
 
   io.on("connection", (socket) => {
@@ -77,9 +78,9 @@ export const setupServer = () => {
       games[room] = {
         host: { socketId: null },
         players: [
-          { socketId: null, points: 0, name: "Черепашки" },
-          { socketId: null, points: 0, name: "Черепушки" },
-          { socketId: null, points: 0, name: "Черемушки" },
+          { socketId: null, points: 0, name: "Черепашки", logo: "🐢" },
+          { socketId: null, points: 0, name: "Черепушки", logo: "💀" },
+          { socketId: null, points: 0, name: "Черемушки", logo: "🍇" },
         ],
         game: { socketId: null },
         isRoundStarted: false,
@@ -99,6 +100,8 @@ export const setupServer = () => {
         socket.join(room);
         socket.emit("player_joined");
       }
+
+      io.to(player.socketId).emit("your_points", player.points);
     });
 
     socket.on("host_join_room", (room, hostSocket) => {
@@ -127,6 +130,9 @@ export const setupServer = () => {
         console.log("Game page changed and joined", game);
         socket.join(room);
       }
+
+      io.to(gameSocket).emit("all_points", games[room].players);
+      console.log(games[room].players);
     });
 
     socket.on("start_game", (room) => {
@@ -170,8 +176,9 @@ export const setupServer = () => {
       const chosenMovie = Object.values(
         movies[room].themes[selectedTheme[room]].movies
       ).find((m) => m.name === selectedMovie[room]);
+      const playerLogo = games[room].players.find((p) => p.name === playerName);
       chosenMovie.guessed = true;
-      chosenMovie.whoGuessed = playerName;
+      chosenMovie.whoGuessed = playerLogo.logo;
       games[room].whoAnswering = null;
       games[room].isRoundStarted = false;
       io.emit("answer_yes", playerName);
@@ -187,6 +194,7 @@ export const setupServer = () => {
 
       io.to(gameId).emit("all_points", games[room].players);
       io.to(player.socketId).emit("your_points", player.points);
+      console.log(games[room].players);
     });
 
     socket.on("answer_no", (room) => {
