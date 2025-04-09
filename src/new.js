@@ -208,19 +208,18 @@ export const setupServer = () => {
 
     socket.on("get_themes", async (room) => {
       if (!games[room]) return;
+      const list = {};
       try {
         await getThemesAndMovies(room);
-      } catch (err) {
-        console.log(err.message);
-      } finally {
         const themeList = Object.keys(movies[room].themes);
         const moviesTheme = movies[room].themes;
 
-        const list = {};
         for (const theme of themeList) {
           list[theme] = { movies: [...moviesTheme[theme].movies] };
         }
-
+      } catch (err) {
+        console.log(err.message);
+      } finally {
         io.to(room).emit("all_themes", list);
       }
     });
