@@ -2,7 +2,6 @@ import express from "express";
 import pino from "pino-http";
 import cors from "cors";
 import http from "http";
-import { nanoid } from "nanoid";
 import { v2 as cloudinary } from "cloudinary";
 import { Server } from "socket.io";
 
@@ -73,8 +72,8 @@ export const setupServer = () => {
   io.on("connection", (socket) => {
     console.log("New connection:", socket.id);
 
-    socket.on("create_session", async (room) => {
-      await getThemesAndMovies(room);
+    socket.on("create_session", (room) => {
+      //
       games[room] = {
         host: { socketId: null },
         players: [
@@ -89,20 +88,24 @@ export const setupServer = () => {
       console.log("Session created:", room);
     });
 
-    socket.on("player_join_room", (room, playerName, playerSocket) => {
-      if (!games[room]) return;
-      const player = games[room].players.find(
-        (player) => player.name === playerName
-      );
-      if (player.socketId !== playerSocket) {
-        player.socketId = playerSocket;
-        console.log("Player joined", player);
-        socket.join(room);
-        socket.emit("player_joined");
+    socket.on(
+      "player_join_room",
+      (room, playerName, playerId, playerSocket) => {
+        if (!games[room]) return;
+        const player = games[room].players.find(
+          (player) => player.name === playerName
+        );
+        if (player.socketId !== playerSocket) {
+          player.socketId = playerSocket;
+          console.log("Player joined", player);
+          socket.join(room);
+          socket.emit("player_joined");
+        }
+        console.log("set QR disabled and emit points");
+        io.to(room).emit("check_player", playerId);
+        io.to(player.socketId).emit("your_points", player.points);
       }
-
-      io.to(player.socketId).emit("your_points", player.points);
-    });
+    );
 
     socket.on("host_join_room", (room, hostSocket) => {
       if (!games[room]) return;
@@ -116,6 +119,7 @@ export const setupServer = () => {
         console.log("Host changed and joined", host);
         socket.join(room);
       }
+      io.to(room).emit("check_host", games[room].players);
     });
 
     socket.on("game_join_room", (room, gameSocket) => {
@@ -135,7 +139,7 @@ export const setupServer = () => {
       console.log(games[room].players);
     });
 
-    socket.on("start_game", (room) => {
+    socket.on("start_game", async (room) => {
       if (!games[room]) return;
       console.log("Game started", room);
       socket.broadcast.to(room).emit("start_game", room);
@@ -202,17 +206,23 @@ export const setupServer = () => {
       io.emit("answer_no");
     });
 
-    socket.on("get_themes", (room) => {
+    socket.on("get_themes", async (room) => {
       if (!games[room]) return;
-      const themeList = Object.keys(movies[room].themes);
-      const moviesTheme = movies[room].themes;
+      try {
+        await getThemesAndMovies(room);
+      } catch (err) {
+        console.log(err.message);
+      } finally {
+        const themeList = Object.keys(movies[room].themes);
+        const moviesTheme = movies[room].themes;
 
-      const list = {};
-      for (const theme of themeList) {
-        list[theme] = { movies: [...moviesTheme[theme].movies] };
+        const list = {};
+        for (const theme of themeList) {
+          list[theme] = { movies: [...moviesTheme[theme].movies] };
+        }
+
+        io.to(room).emit("all_themes", list);
       }
-
-      io.to(room).emit("all_themes", list);
     });
 
     socket.on("get_frames", async (room, theme, movie) => {
