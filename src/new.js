@@ -82,6 +82,7 @@ export const setupServer = () => {
           { socketId: null, points: 0, name: "Черемушки", logo: "🍇" },
         ],
         game: { socketId: null },
+        gameIsStarted: false,
         isRoundStarted: false,
         whoAnswering: null,
       };
@@ -109,6 +110,11 @@ export const setupServer = () => {
 
     socket.on("host_join_room", (room, hostSocket) => {
       if (!games[room]) return;
+      if (games[room].gameIsStarted === true) {
+        console.log("game is started");
+        io.to(hostSocket).emit("all_themes", movies[room].themes);
+        return;
+      }
       let host = games[room].host;
       if (host.socketId === null) {
         host = { socketId: hostSocket };
@@ -139,10 +145,29 @@ export const setupServer = () => {
       console.log(games[room].players);
     });
 
-    socket.on("start_game", async (room) => {
+    socket.on("start_game", async (room, socketId) => {
       if (!games[room]) return;
+
+      if (games[room].gameIsStarted === true)
+        return io.to(socketId).emit("all_themes", movies[room].themes);
+      games[room].gameIsStarted = true;
       console.log("Game started", room);
-      socket.broadcast.to(room).emit("start_game", room);
+      const list = {};
+      try {
+        await getThemesAndMovies(room);
+        const themeList = Object.keys(movies[room].themes);
+        const moviesTheme = movies[room].themes;
+
+        for (const theme of themeList) {
+          list[theme] = { movies: [...moviesTheme[theme].movies] };
+        }
+      } catch (err) {
+        console.log(err.message);
+      } finally {
+        io.to(room).emit("all_themes", list);
+      }
+
+      io.to(room).emit("start_game", room);
     });
 
     socket.on("round_request", (room) => {
@@ -163,7 +188,11 @@ export const setupServer = () => {
 
     socket.on("round_end", (room) => {
       console.log("Round ended");
-      socket.broadcast.to(room).emit("round_end");
+      const chosenMovie = Object.values(
+        movies[room].themes[selectedTheme[room]].movies
+      ).find((m) => m.name === selectedMovie[room]);
+      chosenMovie.guessed = true;
+      io.to(room).emit("round_end");
       games[room].isRoundStarted = false;
     });
 
@@ -206,22 +235,10 @@ export const setupServer = () => {
       io.emit("answer_no");
     });
 
-    socket.on("get_themes", async (room) => {
+    socket.on("get_themes", (room) => {
       if (!games[room]) return;
-      const list = {};
-      try {
-        await getThemesAndMovies(room);
-        const themeList = Object.keys(movies[room].themes);
-        const moviesTheme = movies[room].themes;
-
-        for (const theme of themeList) {
-          list[theme] = { movies: [...moviesTheme[theme].movies] };
-        }
-      } catch (err) {
-        console.log(err.message);
-      } finally {
-        io.to(room).emit("all_themes", list);
-      }
+      if (!games[room].game.socketId === null) return;
+      io.to(room).emit("all_themes", movies[room].themes);
     });
 
     socket.on("get_frames", async (room, theme, movie) => {
@@ -242,6 +259,7 @@ export const setupServer = () => {
     });
 
     socket.on("end_game", async (room) => {
+      if (!games[room]) return;
       const maxPoints = Math.max(
         ...games[room].players.map((player) => player.points)
       );
