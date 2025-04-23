@@ -249,7 +249,8 @@ export const setupServer = () => {
       selectedTheme[room] = theme;
       selectedMovie[room] = movie;
 
-      const framesList = () => frames.resources.map((frame) => frame.url);
+      const framesList = () =>
+        frames.resources.map((frame) => frame.secure_url);
       io.to(room).emit("all_frames", framesList(), movie);
       frames.resources = null;
       const used = process.memoryUsage();
