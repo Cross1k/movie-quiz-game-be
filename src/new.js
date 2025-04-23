@@ -251,7 +251,7 @@ export const setupServer = () => {
 
       const framesList = () => frames.resources.map((frame) => frame.url);
       io.to(room).emit("all_frames", framesList(), movie);
-      // frames = null;
+      frames = null;
       const used = process.memoryUsage();
       console.log(`[${room}] Memory usage after sending frames:`);
       for (let key in used) {
