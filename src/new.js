@@ -251,6 +251,14 @@ export const setupServer = () => {
 
       const framesList = () => frames.resources.map((frame) => frame.url);
       io.to(room).emit("all_frames", framesList(), movie);
+      // frames = null;
+      const used = process.memoryUsage();
+      console.log(`[${room}] Memory usage after sending frames:`);
+      for (let key in used) {
+        console.log(
+          `${key}: ${Math.round((used[key] / 1024 / 1024) * 100) / 100} MB`
+        );
+      }
     });
 
     socket.on("change_frame", (gamePage) => {
