@@ -7,6 +7,7 @@ import { Server } from "socket.io";
 
 import { getEnvVar } from "./utils/getEnvVar.js";
 import { CLOUDINARY } from "./utils/cloudinary.js";
+import { type } from "os";
 
 const PORT = Number(getEnvVar("PORT", "3000"));
 
@@ -21,8 +22,22 @@ const games = {};
 const movies = {};
 const selectedTheme = {};
 const selectedMovie = {};
+let allBundles = null;
 
-const getThemesAndMovies = async (room) => {
+const getAllBundles = async () => {
+  try {
+    const bundleTitles = await cloudinary.api.sub_folders(
+      "movie-quiz/bundles/"
+    );
+    console.log("var", bundleTitles.folders);
+    allBundles = bundleTitles.folders;
+    console.log("all bundles:", allBundles);
+  } catch (e) {
+    console.log(e.message);
+  }
+};
+
+const getThemesAndMovies = async (room, bundleName) => {
   if (!room) {
     console.error("getThemesAndMovies: room is null or undefined");
     return;
@@ -31,7 +46,9 @@ const getThemesAndMovies = async (room) => {
   try {
     console.log("Themes and movies requested");
 
-    const themesResult = await cloudinary.api.sub_folders("movie-quiz/themes");
+    const themesResult = await cloudinary.api.sub_folders(
+      `movie-quiz/bundles/${bundleName}`
+    );
     movies[room] = { themes: {} };
     if (!themesResult || !themesResult.folders) {
       console.error("getThemesAndMovies: themesResult is null or undefined");
@@ -46,7 +63,9 @@ const getThemesAndMovies = async (room) => {
 
       movies[room].themes[theme.name] = {
         movies: (
-          await cloudinary.api.sub_folders(`movie-quiz/themes/${theme.name}`)
+          await cloudinary.api.sub_folders(
+            `movie-quiz/bundles/${bundleName}/${theme.name}`
+          )
         ).folders.map((movie, index) => ({
           index,
           name: movie.name,
@@ -82,6 +101,7 @@ export const setupServer = () => {
           { socketId: null, points: 0, name: "Черемушки", logo: "🍇" },
         ],
         game: { socketId: null },
+        gameBundle: null,
         gameIsStarted: false,
         isRoundStarted: false,
         whoAnswering: null,
@@ -108,13 +128,9 @@ export const setupServer = () => {
       }
     );
 
-    socket.on("host_join_room", (room, hostSocket) => {
+    socket.on("host_join_room", async (room, hostSocket) => {
       if (!games[room]) return;
-      if (games[room].gameIsStarted === true) {
-        console.log("game is started");
-        io.to(hostSocket).emit("all_themes", movies[room].themes);
-        return;
-      }
+
       let host = games[room].host;
       if (host.socketId === null) {
         host = { socketId: hostSocket };
@@ -125,7 +141,47 @@ export const setupServer = () => {
         console.log("Host changed and joined", host);
         socket.join(room);
       }
-      io.to(room).emit("check_host", games[room].players);
+
+      if (games[room].gameIsStarted === true) {
+        console.log("game is started");
+        io.to(hostSocket).emit(
+          "all_themes",
+          movies[room].themes,
+          games[room].gameBundle
+        );
+      } else {
+        try {
+          await getAllBundles();
+          console.log("bundles", allBundles);
+          io.to(room).emit("check_host", games[room].players);
+          io.to(hostSocket).emit("all_bundles", allBundles);
+        } catch (e) {
+          console.log(e.message);
+        }
+      }
+    });
+
+    socket.on("chose_bundle", async (room, bundleName) => {
+      console.log("chose bundle", bundleName);
+      if (!games[room]) return;
+      // if (games[room].gameIsStarted === true) return;
+      // games[room].gameIsStarted = true;
+      games[room].gameBundle = bundleName;
+      const list = {};
+      try {
+        await getThemesAndMovies(room, bundleName);
+        const themeList = Object.keys(movies[room].themes);
+        const moviesTheme = movies[room].themes;
+
+        for (const theme of themeList) {
+          list[theme] = { movies: [...moviesTheme[theme].movies] };
+        }
+      } catch (err) {
+        console.log(err);
+      } finally {
+        console.log("all themes:", list);
+        io.to(room).emit("all_themes", list, bundleName);
+      }
     });
 
     socket.on("game_join_room", (room, gameSocket) => {
@@ -140,8 +196,13 @@ export const setupServer = () => {
         console.log("Game page changed and joined", game);
         socket.join(room);
       }
+      if (games[room].gameBundle === null) {
+        const bundles = allBundles;
+        io.to(gameSocket).emit("all_bundles", bundles);
+      }
 
       io.to(gameSocket).emit("all_points", games[room].players);
+
       console.log(games[room].players);
     });
 
@@ -152,20 +213,6 @@ export const setupServer = () => {
         return io.to(socketId).emit("all_themes", movies[room].themes);
       games[room].gameIsStarted = true;
       console.log("Game started", room);
-      const list = {};
-      try {
-        await getThemesAndMovies(room);
-        const themeList = Object.keys(movies[room].themes);
-        const moviesTheme = movies[room].themes;
-
-        for (const theme of themeList) {
-          list[theme] = { movies: [...moviesTheme[theme].movies] };
-        }
-      } catch (err) {
-        console.log(err.message);
-      } finally {
-        io.to(room).emit("all_themes", list);
-      }
 
       io.to(room).emit("start_game", room);
     });
@@ -241,24 +288,23 @@ export const setupServer = () => {
       io.to(room).emit("all_themes", movies[room].themes);
     });
 
-    socket.on("get_frames", async (room, theme, movie) => {
-      const frames = await cloudinary.api.resources_by_asset_folder(
-        `movie-quiz/themes/${theme}/${movie}`
-      );
-
-      selectedTheme[room] = theme;
-      selectedMovie[room] = movie;
-
-      const framesList = () =>
-        frames.resources.map((frame) => frame.secure_url);
-      io.to(room).emit("all_frames", framesList(), movie);
-      frames.resources = null;
-      const used = process.memoryUsage();
-      console.log(`[${room}] Memory usage after sending frames:`);
-      for (let key in used) {
-        console.log(
-          `${key}: ${Math.round((used[key] / 1024 / 1024) * 100) / 100} MB`
+    socket.on("get_frames", async (room, bundleName, theme, movie) => {
+      console.log("bundlename", bundleName);
+      try {
+        const frames = await cloudinary.api.resources_by_asset_folder(
+          `movie-quiz/bundles/${bundleName}/${theme}/${movie}/`,
+          { fields: "secure_url" }
         );
+
+        selectedTheme[room] = theme;
+        selectedMovie[room] = movie;
+
+        const framesList = () =>
+          frames.resources.map((frame) => frame.secure_url);
+        io.to(room).emit("all_frames", framesList(), movie);
+        frames.resources = null;
+      } catch (error) {
+        console.log(error);
       }
     });
 
