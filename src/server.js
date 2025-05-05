@@ -1,7 +1,3 @@
-import express from "express";
-import pino from "pino-http";
-import cors from "cors";
-import http from "http";
 import { v2 as cloudinary } from "cloudinary";
 import { Server } from "socket.io";
 
