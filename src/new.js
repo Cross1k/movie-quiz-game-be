@@ -341,7 +341,7 @@ export const setupServer = () => {
       }, 6000);
     });
 
-    io.on("disconnect", () => {
+    socket.on("disconnect", () => {
       console.log("Пользователь отключился:", socket.id);
     });
   });
