@@ -1,3 +1,7 @@
+import express from "express";
+import pino from "pino-http";
+import cors from "cors";
+import http from "http";
 import { v2 as cloudinary } from "cloudinary";
 import { Server } from "socket.io";
 
@@ -24,7 +28,9 @@ const getAllBundles = async () => {
     const bundleTitles = await cloudinary.api.sub_folders(
       "movie-quiz/bundles/"
     );
+    console.log("var", bundleTitles.folders);
     allBundles = bundleTitles.folders;
+    console.log("all bundles:", allBundles);
   } catch (e) {
     console.log(e.message);
   }
@@ -74,13 +80,9 @@ const getThemesAndMovies = async (room, bundleName) => {
 };
 
 export const setupServer = () => {
-  const io = new Server({
-    connectionStateRecovery: {
-      maxDisconnectionDuration: 2 * 60 * 1000,
-      skipMiddlewares: true,
-    },
-    // cors: { origin: "https://movie-quiz-psi.vercel.app" },
-    cors: { origin: "*" },
+  const io = new Server(PORT, {
+    cors: { origin: "https://movie-quiz-psi.vercel.app" },
+    // cors: { origin: "*" },
   });
 
   io.on("connection", (socket) => {
@@ -341,6 +343,5 @@ export const setupServer = () => {
     });
   });
 
-  io.listen(PORT);
-  console.log(`Server started on port ${PORT}`);
+  io.listen(PORT, () => console.log(`Server sis running on port ${PORT}`));
 };
