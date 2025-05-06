@@ -1,6 +1,5 @@
 import { v2 as cloudinary } from "cloudinary";
 import { Server } from "socket.io";
-import { injectSpeedInsights } from "@vercel/speed-insights";
 
 import { getEnvVar } from "./utils/getEnvVar.js";
 import { CLOUDINARY } from "./utils/cloudinary.js";
@@ -20,7 +19,6 @@ const selectedTheme = {};
 const selectedMovie = {};
 let allBundles = null;
 
-injectSpeedInsights();
 const getAllBundles = async () => {
   try {
     const bundleTitles = await cloudinary.api.sub_folders(
