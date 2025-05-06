@@ -79,8 +79,8 @@ export const setupServer = () => {
       maxDisconnectionDuration: 2 * 60 * 1000,
       skipMiddlewares: true,
     },
-    // cors: { origin: "https://movie-quiz-psi.vercel.app" },
-    cors: { origin: "*" },
+    cors: { origin: "https://movie-quiz-psi.vercel.app" },
+    // cors: { origin: "*" },
   });
 
   io.on("connection", (socket) => {
